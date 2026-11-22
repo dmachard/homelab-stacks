@@ -1,0 +1,33 @@
+# =============================================================================
+# Calibre-Web — Web app for browsing, reading and downloading eBooks
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - CALIBREWEB_VERSION, CALIBREWEB_HOST, PUID, PGID, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+
+services:
+  calibreweb:
+    image: linuxserver/calibre-web:${CALIBREWEB_VERSION}
+    container_name: calibreweb
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+    volumes:
+      - ${DATA_DIR}/calibre/config:/config # Calibre-Web application settings & SQLite DB
+      - ${DATA_DIR}/books:/books           # Calibre eBook library
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.books.loadbalancer.server.port=8083
+      - traefik.http.routers.books.entrypoints=websecure
+      - traefik.http.routers.books.rule=Host(`${CALIBREWEB_HOST}`)
+      - traefik.http.routers.books.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy

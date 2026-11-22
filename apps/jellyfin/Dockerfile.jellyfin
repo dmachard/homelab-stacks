@@ -1,0 +1,15 @@
+# Custom Jellyfin image with jellyfin-ffmpeg7 for AMD GPU hardware transcoding
+#
+# Verify hardware acceleration inside the running container:
+#   docker exec -it jellyfin /usr/lib/jellyfin-ffmpeg/vainfo --display drm --device /dev/dri/renderD128
+#   docker exec -it jellyfin /usr/lib/jellyfin-ffmpeg/ffmpeg -v debug -init_hw_device opencl
+#   docker exec -it jellyfin /usr/lib/jellyfin-ffmpeg/ffmpeg -v debug -init_hw_device vulkan
+# Docs: https://jellyfin.org/docs/general/administration/hardware-acceleration/amd/
+
+ARG JELLYFIN_VERSION=12.4
+FROM jellyfin/jellyfin:${JELLYFIN_VERSION}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends jellyfin-ffmpeg7 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*

@@ -1,0 +1,25 @@
+# =============================================================================
+# PublicAddr — Dynamic DNS updater for OVHcloud DNS records
+# =============================================================================
+# Included by network/docker-compose.yml.
+#
+# Required environment variables (defined in network/.env):
+#   - PUBLICADDR_VERSION, REFRESH, DEBUG, HAS_IPV6, ZONE, SUBDOMAINS
+#   - OVH_EP, OVH_AK, OVH_AS, OVH_CK
+# =============================================================================
+
+services:
+  publicaddr:
+    image: dmachard/publicaddr-ovhcloud:${PUBLICADDR_VERSION}
+    container_name: publicaddr
+    restart: unless-stopped
+    environment:
+      PUBLICADDR_OVHCLOUD_UPDATE: ${REFRESH}
+      PUBLICADDR_OVHCLOUD_DEBUG: ${DEBUG}
+      PUBLICADDR_OVHCLOUD_HAS_IPV6: ${HAS_IPV6}
+      PUBLICADDR_OVHCLOUD_ZONE: ${ZONE}
+      PUBLICADDR_OVHCLOUD_SUBDOMAINS: ${SUBDOMAINS}
+      PUBLICADDR_OVHCLOUD_ENDPOINT: ${OVH_EP}
+      PUBLICADDR_OVHCLOUD_APPLICATION_KEY: ${OVH_AK}
+      PUBLICADDR_OVHCLOUD_APPLICATION_SECRET: ${OVH_AS}
+      PUBLICADDR_OVHCLOUD_CONSUMER_KEY: ${OVH_CK}

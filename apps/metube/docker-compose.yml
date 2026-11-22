@@ -1,0 +1,32 @@
+# =============================================================================
+# MeTube — Web GUI for yt-dlp video/audio downloads
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - METUBE_VERSION, METUBE_HOST, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Isolated internal network for MeTube
+  metube:
+
+services:
+  metube:
+    image: ghcr.io/alexta69/metube:${METUBE_VERSION}
+    container_name: metube
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.metube.loadbalancer.server.port=8081
+      - traefik.http.routers.metube.entrypoints=websecure
+      - traefik.http.routers.metube.rule=Host(`${METUBE_HOST}`)
+      - traefik.http.routers.metube.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+      - metube
+    volumes:
+      - ${DATA_DIR}/youtube:/downloads # Downloaded videos/audio directory

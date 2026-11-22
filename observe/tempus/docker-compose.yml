@@ -1,0 +1,29 @@
+# =============================================================================
+# Tempus Exporter — Calendar, ephemeris, trash pickup & birthday metrics
+# =============================================================================
+# Included by observe/docker-compose.yml.
+#
+# Prerequisites:
+#   - Copy schedule.yaml.example to ${DATA_DIR}/tempus/schedule.yaml and customize
+#
+# Required environment variables (defined in observe/.env):
+#   - TEMPUS_VERSION, TEMPUS_LATITUDE, TEMPUS_LONGITUDE, TEMPUS_COUNTRY_CODE, TZ, DATA_DIR
+# =============================================================================
+
+services:
+  tempus_exporter:
+    image: dmachard/tempus-exporter:${TEMPUS_VERSION}
+    restart: unless-stopped
+    ports:
+      - "9101:8000" # Prometheus /metrics endpoint
+      - "9102:8001" # Tempus HTTP API
+    environment:
+      LATITUDE: ${TEMPUS_LATITUDE}
+      LONGITUDE: ${TEMPUS_LONGITUDE}
+      TIMEZONE: ${TZ}
+      PORT: 8000
+      API_PORT: 8001
+      COUNTRY_CODE: ${TEMPUS_COUNTRY_CODE}
+      SCHEDULE_FILE: /schedule.yaml
+    volumes:
+      - ${DATA_DIR}/tempus/schedule.yaml:/schedule.yaml # Personal schedule (trash days, birthdays)

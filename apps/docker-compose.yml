@@ -1,0 +1,62 @@
+# =============================================================================
+# Apps Stack — Homelab user-facing applications
+# =============================================================================
+# Start all included applications:
+#   docker compose up -d
+#
+# Start or restart a single service:
+#   docker compose up -d vaultwarden
+#
+# Prerequisites:
+#   - External Docker network: docker network create traefik_proxy
+#   - Root apps/.env configured
+# =============================================================================
+
+include:
+  - path: ./calibre/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./cdn/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./dufs/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./familytimeline/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./freshrss/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./gonic_airsonic/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./immich/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./jellyfin/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./lazydocs/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./linktower/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./mealie/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./memos/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./metube/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./sci-compta/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./thingport/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./vaultwarden/docker-compose.yml
+    env_file: ./.env

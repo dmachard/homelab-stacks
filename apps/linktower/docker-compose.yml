@@ -1,0 +1,80 @@
+# =============================================================================
+# LinkTower — Media download manager with IPv6-enabled Webtop Chromium sidecar
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - LINKTOWER_VERSION, LINKTOWER_WEBTOP_VERSION
+#   - LINKTOWER_HOST, LINKTOWER_BROWSER_HOST, LINKTOWER_IPV6_SUBNET
+#   - PUID, PGID, DOCKER_GID, TZ, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Dedicated IPv6-enabled bridge network (used for outbound IPv6 connectivity)
+  linktower:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: ${LINKTOWER_IPV6_SUBNET}
+
+services:
+  # ---------------------------------------------------------------------------
+  # LinkTower web application
+  # ---------------------------------------------------------------------------
+  linktower:
+    image: dmachard/ddl-tower:${LINKTOWER_VERSION}
+    restart: unless-stopped
+    user: "${PUID}:${PGID}"
+    group_add:
+      - ${DOCKER_GID} # Docker socket group access
+    depends_on:
+      - linktower-browser
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/medias/external_disks/dock_disk1/DDLtower/:/app/data # Download destination directory
+      - ${DATA_DIR}/linktower/config:/app/config                         # Application configuration
+      - /var/run/docker.sock:/var/run/docker.sock                        # Docker socket for sidecar management
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.linktower.loadbalancer.server.port=8000
+      - traefik.http.routers.linktower.entrypoints=websecure
+      - traefik.http.routers.linktower.rule=Host(`${LINKTOWER_HOST}`)
+      - traefik.http.routers.linktower.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+      - linktower
+
+  # ---------------------------------------------------------------------------
+  # Webtop Chromium browser sidecar (routed over IPv6)
+  # ---------------------------------------------------------------------------
+  linktower-browser:
+    image: lscr.io/linuxserver/webtop:${LINKTOWER_WEBTOP_VERSION}
+    container_name: linktower-browser
+    restart: unless-stopped
+    user: root
+    shm_size: "1gb"
+    # Force IPv6 resolution for target hosts
+    extra_hosts:
+      - "hdencode.org:2606:4700:3031::6815:129e"
+      - "www.hdencode.org:2606:4700:3031::6815:129e"
+    environment:
+      PUID: 0
+      PGID: 0
+      TZ: ${TZ}
+      SUBFOLDER: /
+      TITLE: LinkTower Chromium
+    volumes:
+      - ${DATA_DIR}/linktower/webtop_data:/config # Persistent browser profile & desktop config
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.linktower-browser.loadbalancer.server.port=3000
+      - traefik.http.routers.linktower-browser.entrypoints=websecure
+      - traefik.http.routers.linktower-browser.rule=Host(`${LINKTOWER_BROWSER_HOST}`)
+      - traefik.http.routers.linktower-browser.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+      - linktower

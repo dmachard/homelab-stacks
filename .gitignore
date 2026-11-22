@@ -1,0 +1,36 @@
+# Environment files (never commit secrets or personal hostnames)
+.env
+**/.env
+*.env.local
+
+# Databases, logs & temporary runtime artifacts
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+*.cdb
+*.bkp
+*.bak
+
+# Certificates, private keys & VPN configs
+*.pem
+*.key
+*.crt
+acme.json
+wg*.conf
+
+# Persistent data directories (kept outside Git under /data)
+*-data/
+*_data/
+postgres/
+webtop_data/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~

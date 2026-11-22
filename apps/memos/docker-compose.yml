@@ -1,0 +1,38 @@
+# =============================================================================
+# Memos — Lightweight self-hosted note-taking service
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Prerequisites:
+#   - Ensure data directory ownership matches the container UID/GID:
+#       sudo chown -R 10001:10001 /data/memos
+#
+# Required environment variables (defined in apps/.env):
+#   - MEMOS_VERSION, MEMOS_HOST, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Isolated internal network for Memos
+  memos:
+
+services:
+  memos:
+    image: neosmemo/memos:${MEMOS_VERSION}
+    container_name: memos
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.memos.loadbalancer.server.port=5230
+      - traefik.http.routers.memos.entrypoints=websecure
+      - traefik.http.routers.memos.rule=Host(`${MEMOS_HOST}`)
+      - traefik.http.routers.memos.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+      - memos
+    volumes:
+      - ${DATA_DIR}/memos:/var/opt/memos # Persistent SQLite database & attachments (UID/GID 10001)
+    expose:
+      - 5230

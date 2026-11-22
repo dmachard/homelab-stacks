@@ -1,0 +1,270 @@
+# =============================================================================
+# dnsdist 2.x YAML configuration (Jinja2 template)
+# =============================================================================
+# Rendered to /tmp/dnsdist.yml at container startup from environment variables:
+#   - ZONE                 : Homelab base domain used for split-horizon DNS
+#   - DNSDIST_LAN_IPV4     : LAN IPv4 address (listen + split-horizon spoof)
+#   - DNSDIST_LAN_SUBNET   : LAN CIDR subnet matched by split-horizon rules
+#   - DNSDIST_VPN_IPV4     : VPN IPv4 address (listen + split-horizon spoof)
+#   - DNSDIST_VPN_SUBNET   : VPN CIDR subnet matched by split-horizon rules
+#   - DNSDIST_IPV6         : Global IPv6 address to listen on
+#   - DNSDIST_WEB_PASSWORD : Webserver UI password
+#   - DNSDIST_WEB_API_KEY  : Webserver REST API key
+#
+# Traffic flow:
+#   Client -> dnsdist (Do53)
+#     1. Blocklist CDB match        -> log (dnstap) + spoof 127.0.0.1 / ::1
+#     2. LAN A query for *.<ZONE>   -> log (dnstap) + spoof <DNSDIST_LAN_IPV4>
+#     3. VPN A query for *.<ZONE>   -> log (dnstap) + spoof <DNSDIST_VPN_IPV4>
+#     4. Everything else            -> log (dnstap) + forward to PowerDNS Recursor
+# =============================================================================
+
+# Networks allowed to send DNS queries to dnsdist
+acl:
+  - "0.0.0.0/0"
+  - "::/0"
+
+# Listening interfaces (standard DNS over UDP/TCP port 53 with SO_REUSEPORT)
+binds:
+  # LAN IPv4 interface
+  - listen_address: "{{ DNSDIST_LAN_IPV4 }}:53"
+    protocol: "Do53"
+    reuseport: true
+
+  # VPN (WireGuard) IPv4 interface
+  - listen_address: "{{ DNSDIST_VPN_IPV4 }}:53"
+    protocol: "Do53"
+    reuseport: true
+
+  # Global IPv6 interface
+  - listen_address: "[{{ DNSDIST_IPV6 }}]:53"
+    protocol: "Do53"
+    reuseport: true
+
+# Built-in HTTP dashboard, metrics, and API endpoint
+webserver:
+  listen_addresses:
+    - "0.0.0.0:8980"
+  acl:
+    - 0.0.0.0/0
+  password: "{{ DNSDIST_WEB_PASSWORD }}"
+  api_key: "{{ DNSDIST_WEB_API_KEY }}"
+  hash_plaintext_credentials: true
+  api_requires_authentication: false
+
+# In-memory DNS packet cache (50k entries)
+packet_caches:
+  - name: "cache"
+    size: 50000
+
+# Backend server pools
+pools:
+  - name: "default"
+    packet_cache: "cache"
+
+# Upstream resolvers (local PowerDNS Recursor on port 5301)
+backends:
+  - address: "127.0.0.1:5301"
+    protocol: "Do53"
+    pools:
+      - "default"
+
+# Remote logging via dnstap over TCP to dnscollector (port 6000)
+remote_logging:
+  dnstap_loggers:
+    - name: "remote_logging"
+      transport: tcp
+      address: "127.0.0.1:6000"
+      connection_count: 1
+
+# Key-value stores used for domain blocklist lookups
+key_value_stores:
+  # CDB blocklist downloaded daily by blocklist_updater, reloaded every hour
+  cdb:
+    - name: "blocklist_cdb"
+      file_name: /etc/dnsdist/blocklist.cdb
+      refresh_delay: 3600
+  # Lookup key extracting domain suffixes so subdomains of blocked domains also match
+  lookup_keys:
+    suffix_keys:
+      - name: "lookup_qname"
+        wire_format: false
+        minimum_labels: 0
+
+# Incoming query rules (evaluated in order; Spoof and Pool actions stop evaluation)
+query_rules:
+  # ---------------------------------------------------------------------------
+  # 1. Blocklist filtering
+  #    Matches blacklisted domains from the CDB store, logs them via dnstap,
+  #    and answers with loopback IPs (127.0.0.1 / ::1).
+  # ---------------------------------------------------------------------------
+  - name: "search for blacklisted domain from cdb database"
+    selector:
+      type: KeyValueStoreLookup
+      kvs_name: "blocklist_cdb"
+      lookup_key_name: "lookup_qname"
+    action:
+      type: SetTag
+      tag: "policy"
+      value: "blocked"
+
+  - name: "log blocked domains"
+    selector:
+      type: Tag
+      tag: "policy"
+      value: "blocked"
+    action:
+      type: DnstapLog
+      identity: "dnsdist2_blocked"
+      logger_name: "remote_logging"
+
+  - name: "spoof blocking traffic"
+    selector:
+      type: Tag
+      tag: "policy"
+      value: "blocked"
+    action:
+      type: Spoof
+      ips:
+        - "127.0.0.1"
+        - "::1"
+
+  # ---------------------------------------------------------------------------
+  # 2. Split-horizon DNS for LAN clients (<DNSDIST_LAN_SUBNET>)
+  #    Resolves A queries for *.<ZONE> directly to the homelab LAN IP.
+  # ---------------------------------------------------------------------------
+  - name: "tag A queries from LAN subnet"
+    selector:
+      type: "And"
+      selectors:
+        - type: "NetmaskGroup"
+          netmasks:
+            - "{{ DNSDIST_LAN_SUBNET }}"
+        - type: "QType"
+          qtype: "A"
+        - type: Regex
+          expression: '.*\.{{ ZONE | replace(".", "\\.") }}'
+    action:
+      type: SetTag
+      tag: "policy"
+      value: "home_ip4"
+
+  - name: "log home taggued queries"
+    selector:
+      type: "Or"
+      selectors:
+        - type: "Tag" 
+          tag: "policy"
+          value: "home_ip4"
+    action:
+      type: DnstapLog
+      identity: "dnsdist2_home"
+      logger_name: "remote_logging"
+
+  - name: "spoof home_ip4 taggued domain queries"
+    selector:
+      type: Tag
+      tag: "policy"
+      value: "home_ip4"
+    action:
+      type: Spoof
+      ips:
+        - "{{ DNSDIST_LAN_IPV4 }}"
+
+  # ---------------------------------------------------------------------------
+  # 3. Split-horizon DNS for VPN clients (<DNSDIST_VPN_SUBNET>)
+  #    Resolves A queries for *.<ZONE> directly to the homelab VPN IP.
+  # ---------------------------------------------------------------------------
+  - name: "tag A queries from VPN subnet"
+    selector:
+      type: "And"
+      selectors:
+        - type: "NetmaskGroup"
+          netmasks:
+            - "{{ DNSDIST_VPN_SUBNET }}"
+        - type: "QType"
+          qtype: "A"
+        - type: Regex
+          expression: '.*\.{{ ZONE | replace(".", "\\.") }}'
+    action:
+      type: SetTag
+      tag: "policy"
+      value: "vpn_ip4"
+
+  - name: "log vpn taggued queries"
+    selector:
+      type: "Or"
+      selectors:
+        - type: "Tag"
+          tag: "policy"
+          value: "vpn_ip4"
+    action:
+      type: DnstapLog
+      identity: "dnsdist2_vpn"
+      logger_name: "remote_logging"
+
+  - name: "spoof vpn_ip4 taggued domain queries"
+    selector:
+      type: Tag
+      tag: "policy"
+      value: "vpn_ip4"
+    action:
+      type: Spoof
+      ips:
+        - "{{ DNSDIST_VPN_IPV4 }}"
+
+  # ---------------------------------------------------------------------------
+  # 4. Default forwarding
+  #    Tags all remaining queries as "other", logs them, and forwards to the
+  #    "default" pool (PowerDNS Recursor).
+  # ---------------------------------------------------------------------------
+  - name: "tag other queries"
+    selector:
+      type: All
+    action:
+      type: SetTag
+      tag: "policy"
+      value: "other"
+
+  - name: "log other queries"
+    selector:
+      type: "Tag"
+      tag: "policy"
+      value: "other"
+    action:
+      type: DnstapLog
+      identity: "dnsdist2_other"
+      logger_name: "remote_logging"
+
+  - name: "log other queries"
+    selector:
+      type: "Tag"
+      tag: "policy"
+      value: "other" 
+    action:
+      type: Pool
+      pool_name: "default"
+
+# Rules applied to responses received from upstream backends
+response_rules:
+  - name: "log other responses"
+    selector:
+      type: "Tag"
+      tag: "policy"
+      value: "other"
+    action:
+      type: DnstapLog
+      identity: "dnsdist2_other"
+      logger_name: "remote_logging"
+
+# Rules applied to responses served directly from the dnsdist packet cache
+cache_hit_response_rules:
+  - name: "log other responses from cache"
+    selector:
+      type: "Tag"
+      tag: "policy"
+      value: "other"    
+    action:
+      type: DnstapLog
+      identity: "dnsdist2_cache"
+      logger_name: "remote_logging"

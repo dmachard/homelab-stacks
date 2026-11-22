@@ -1,0 +1,45 @@
+# =============================================================================
+# Grafana — Metrics, logs and dashboards visualization
+# =============================================================================
+# Included by observe/docker-compose.yml.
+#
+# Required environment variables (defined in observe/.env):
+#   - GRAFANA_VERSION, GRAFANA_HOST, PUID, PGID, DATA_DIR
+#   - GF_SECURITY_ADMIN_USER, GF_SECURITY_ADMIN_PASSWORD
+#   - GF_INSTALL_PLUGINS, GF_FEATURE_TOGGLES_ENABLE
+#   - GF_AUTH_ANONYMOUS_ENABLED, GF_AUTH_ANONYMOUS_ORG_ROLE, GF_AUTH_DISABLE_LOGIN_FORM
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+
+services:
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}
+    user: "${PUID}:${PGID}"
+    restart: unless-stopped
+    ports:
+      - "3000:3000/tcp" # Grafana Web UI
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_INSTALL_PLUGINS: ${GF_INSTALL_PLUGINS}
+      GF_FEATURE_TOGGLES_ENABLE: ${GF_FEATURE_TOGGLES_ENABLE}
+      GF_AUTH_ANONYMOUS_ENABLED: ${GF_AUTH_ANONYMOUS_ENABLED}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: ${GF_AUTH_ANONYMOUS_ORG_ROLE}
+      GF_AUTH_DISABLE_LOGIN_FORM: ${GF_AUTH_DISABLE_LOGIN_FORM}
+    volumes:
+      - ${DATA_DIR}/grafana-data:/var/lib/grafana                          # Persistent SQLite DB & plugins
+      - ./datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml # Provisioned data sources
+      - ./dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml  # Dashboard provisioning config
+      - ./dashboards:/var/lib/grafana/dashboards                           # Dashboard JSON definitions
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.grafana.loadbalancer.server.port=3000
+      - traefik.http.routers.grafana.entrypoints=websecure
+      - traefik.http.routers.grafana.rule=Host(`${GRAFANA_HOST}`)
+      - traefik.http.routers.grafana.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy

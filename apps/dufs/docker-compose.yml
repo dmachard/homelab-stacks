@@ -1,0 +1,39 @@
+# =============================================================================
+# Dufs — Lightweight web file server with per-user access control
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - DUFS_VERSION, DUFS_HOST, DUFS_AUTH (pipe-separated auth rules)
+#   - PUID, PGID, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+
+services:
+  dufs:
+    image: sigoden/dufs:${DUFS_VERSION}
+    container_name: dufs
+    user: "${PUID}:${PGID}"
+    restart: unless-stopped
+    environment:
+      DUFS_AUTH: ${DUFS_AUTH} # Pipe-separated auth rules (user:pass@/path:rw|...)
+    volumes:
+      - ${DATA_DIR}:/data # Root shared data directory
+    expose:
+      - 5000
+    command:
+      - /data
+      - -A
+      - --log-format=
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.dufs.loadbalancer.server.port=5000
+      - traefik.http.routers.dufs.entrypoints=websecure
+      - traefik.http.routers.dufs.rule=Host(`${DUFS_HOST}`)
+      - traefik.http.routers.dufs.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy

@@ -1,0 +1,23 @@
+# =============================================================================
+# Traefik dynamic file provider configuration — LoRa Gateway
+# =============================================================================
+# Exposes the local LoRa gateway web UI over HTTPS (websecure / Let's Encrypt).
+# =============================================================================
+
+http:
+  # HTTPS router with automatic Let's Encrypt TLS certificate
+  routers:
+    lora-gw:
+      rule: 'Host(`{{ env "TRAEFIK_REVERSEPROXY_LORAGW" }}`)'
+      entryPoints:
+        - websecure
+      service: lora-gw
+      tls:
+        certResolver: letsencrypt
+
+  # Upstream LAN backend (LoRa gateway HTTP interface)
+  services:
+    lora-gw:
+      loadBalancer:
+        servers:
+          - url: '{{ env "TRAEFIK_REVERSEPROXY_LORAGW_URL" }}'

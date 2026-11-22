@@ -1,0 +1,32 @@
+# =============================================================================
+# Network Stack — Core infrastructure (DNS, VPN, Dynamic DNS, Reverse Proxy)
+# =============================================================================
+# Start all network services:
+#   docker compose up -d
+#
+# Start or restart a single service:
+#   docker compose up -d traefik
+#
+# Prerequisites:
+#   - External Docker network: docker network create traefik_proxy
+#   - Root network/.env configured
+# =============================================================================
+
+include:
+  - path: ./dnscollector/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./dnsdist/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./publicaddr/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./recursor/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./traefik/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./wireguard/docker-compose.yml
+    env_file: ./.env

@@ -1,0 +1,68 @@
+# =============================================================================
+# Traefik — HTTPS reverse proxy with Let's Encrypt (OVH DNS-01 challenge)
+# =============================================================================
+# Included by network/docker-compose.yml.
+#
+# Prerequisites:
+#   - External Docker network: docker network create traefik_proxy
+#
+# Required environment variables (defined in network/.env):
+#   - TRAEFIK_VERSION, TRAEFIK_DASHBOARD_HOST, TRAEFIK_ACME_EMAIL
+#   - TRAEFIK_REVERSEPROXY_LORAGW, TRAEFIK_REVERSEPROXY_LORAGW_URL
+#   - OVH_EP, OVH_AK, OVH_AS, OVH_CK, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared external network used by Traefik and proxied services in other stacks
+  traefik_proxy:
+    external: true
+
+services:
+  traefik:
+    image: traefik:${TRAEFIK_VERSION}
+    container_name: traefik
+    restart: unless-stopped
+    ports:
+      - 443:443/tcp
+    networks:
+      - traefik_proxy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.traefik-dashboard.entrypoints=websecure
+      - traefik.http.routers.traefik-dashboard.rule=Host(`${TRAEFIK_DASHBOARD_HOST}`)
+      - traefik.http.routers.traefik-dashboard.service=api@internal
+      - traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DATA_DIR}/certs:/data  # ACME certificates (acme.json) & Traefik logs
+      - ./dynamic:/rp:ro         # Dynamic file provider configs
+    environment:
+      OVH_ENDPOINT: ${OVH_EP}
+      OVH_APPLICATION_KEY: ${OVH_AK}
+      OVH_APPLICATION_SECRET: ${OVH_AS}
+      OVH_CONSUMER_KEY: ${OVH_CK}
+      TRAEFIK_REVERSEPROXY_LORAGW: ${TRAEFIK_REVERSEPROXY_LORAGW}
+      TRAEFIK_REVERSEPROXY_LORAGW_URL: ${TRAEFIK_REVERSEPROXY_LORAGW_URL}
+    command:
+      # See https://doc.traefik.io/traefik/providers/docker/
+      - --providers.docker=true
+      - --providers.docker.network=traefik_proxy
+      - --providers.docker.watch=true
+      - --providers.docker.exposedbydefault=false
+      # See https://doc.traefik.io/traefik/observability/logs/
+      - --log.filePath=/data/traefik.log
+      - --log.level=DEBUG
+      - --accesslog
+      # See https://doc.traefik.io/traefik/operations/api/
+      - --api=true
+      - --api.dashboard=true
+      # See https://doc.traefik.io/traefik/routing/entrypoints/#redirection
+      - --entryPoints.websecure.address=:443
+      # See https://doc.traefik.io/traefik/https/acme/
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=ovh
+      - --certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/data/acme.json
+      # Dynamic file provider (mounted from ./dynamic)
+      - --providers.file.directory=/rp
+      - --providers.file.watch=true

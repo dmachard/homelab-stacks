@@ -1,0 +1,61 @@
+# =============================================================================
+# LazyDocs — Self-hosted document manager with local LLM tagging (Kev)
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Prerequisites:
+#   - Copy categories.yml.example to ${DATA_DIR}/lazydocs/categories.yml and customize household names
+#
+# Required environment variables (defined in apps/.env):
+#   - LAZYDOCS_VERSION, LAZYDOCS_HOST, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Isolated internal network between LazyDocs app and Kev LLM sidecar
+  lazydocs:
+
+services:
+  # ---------------------------------------------------------------------------
+  # LazyDocs web application & document worker
+  # ---------------------------------------------------------------------------
+  lazydocs_app:
+    image: dmachard/lazy-docs:${LAZYDOCS_VERSION}
+    container_name: lazydocs_app
+    restart: unless-stopped
+    depends_on:
+      - lazydocs_kev
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.lazydocs.loadbalancer.server.port=8000
+      - traefik.http.routers.lazydocs.entrypoints=websecure
+      - traefik.http.routers.lazydocs.rule=Host(`${LAZYDOCS_HOST}`)
+      - traefik.http.routers.lazydocs.tls.certresolver=letsencrypt
+    environment:
+      KEV_HOST: http://kev:8009
+      KEV_MODEL: jaredpalmer/kev-0.8b
+      WORKER_CONCURRENCY: 2
+      LLM_SNIPPET_MAX_CHARS: 2500
+    networks:
+      - traefik_proxy
+      - lazydocs
+    volumes:
+      - ${DATA_DIR}/lazydocs/categories.yml:/app/categories.yaml:ro # Document categories & household names
+      - ${DATA_DIR}/lazydocs:/app/data                              # Persistent documents & index
+
+  # ---------------------------------------------------------------------------
+  # Kev — Local LLM inference sidecar for document classification
+  # ---------------------------------------------------------------------------
+  lazydocs_kev:
+    image: dmachard/lazy-docs-kev:${LAZYDOCS_VERSION}
+    container_name: lazydocs_kev
+    expose:
+      - "8009"
+    restart: unless-stopped
+    networks:
+      traefik_proxy:
+      lazydocs:
+        aliases:
+          - kev # Keep internal hostname "kev" for KEV_HOST=http://kev:8009

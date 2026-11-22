@@ -1,0 +1,67 @@
+# =============================================================================
+# Gonic & Airsonic-Refix — Self-hosted Subsonic music server + web player
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - AIRSONIC_VERSION, AIRSONIC_HOST, GONIC_VERSION, GONIC_HOST
+#   - PUID, PGID, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+
+services:
+  # ---------------------------------------------------------------------------
+  # Airsonic-Refix — Modern web UI client connected to Gonic Subsonic API
+  # ---------------------------------------------------------------------------
+  airsonic:
+    image: tamland/airsonic-refix:${AIRSONIC_VERSION}
+    container_name: airsonic
+    restart: unless-stopped
+    environment:
+      SERVER_URL: https://${GONIC_HOST}
+    expose:
+      - 80
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.airsonic.loadbalancer.server.port=80
+      - traefik.http.routers.airsonic.entrypoints=websecure
+      - traefik.http.routers.airsonic.rule=Host(`${AIRSONIC_HOST}`)
+      - traefik.http.routers.airsonic.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+
+  # ---------------------------------------------------------------------------
+  # Gonic — Lightweight Subsonic-compatible music streaming backend
+  # ---------------------------------------------------------------------------
+  gonic:
+    image: sentriz/gonic:${GONIC_VERSION}
+    container_name: gonic
+    user: "${PUID}:${PGID}"
+    restart: unless-stopped
+    # Disable external MusicBrainz lookups
+    extra_hosts:
+      - "musicbrainz.org:127.0.0.1"
+    environment:
+      TZ: Etc/UTC
+      GONIC_SCAN_WATCHER_ENABLED: "true"
+      GONIC_LISTEN_ADDR: 0.0.0.0:4747
+    expose:
+      - 4747
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.subsonic.loadbalancer.server.port=4747
+      - traefik.http.routers.subsonic.entrypoints=websecure
+      - traefik.http.routers.subsonic.rule=Host(`${GONIC_HOST}`)
+      - traefik.http.routers.subsonic.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+    volumes:
+      - ${DATA_DIR}/music/gonic_data:/data      # Gonic SQLite database & state
+      - ${DATA_DIR}/music/gonic_cache:/cache    # Transcoding & album art cache
+      - ${DATA_DIR}/music/albums:/music:ro      # Read-only music library
+      - ${DATA_DIR}/music/podcasts:/podcasts    # Downloaded podcasts
+      - ${DATA_DIR}/music/playlists:/playlists  # M3U playlists

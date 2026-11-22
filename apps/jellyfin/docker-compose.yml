@@ -1,0 +1,42 @@
+# =============================================================================
+# Jellyfin — Self-hosted media server with AMD VAAPI/ROCm hardware transcoding
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Rebuild & restart after bumping JELLYFIN_VERSION:
+#   docker compose build jellyfin && docker compose up -d jellyfin
+#
+# Required environment variables (defined in apps/.env):
+#   - JELLYFIN_VERSION, JELLYFIN_PUBLISHED_URL, JELLYFIN_WATCHLIST_DIR
+#   - PUID, PGID, DATA_DIR
+# =============================================================================
+
+services:
+  jellyfin:
+    build:
+      context: .
+      dockerfile: Dockerfile.jellyfin
+      args:
+        JELLYFIN_VERSION: ${JELLYFIN_VERSION}
+    container_name: jellyfin
+    user: "${PUID}:${PGID}"
+    group_add:
+      - "105" # render group (GPU render node access)
+      - "44"  # video group (DRM device access)
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128 # VAAPI / Vulkan render device
+      - /dev/kfd:/dev/kfd                       # AMD ROCm compute device
+      - /dev/dri/card0:/dev/dri/card0           # Primary DRM card
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      JELLYFIN_PublishedServerUrl: ${JELLYFIN_PUBLISHED_URL}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DATA_DIR}/medias/jellyfin_config:/config                                  # Persistent config & metadata DB
+      - ${DATA_DIR}/medias/jellyfin_cache:/cache                                    # Transcoding & image cache
+      - ${DATA_DIR}/medias/external_disks:/external_disks:rslave                    # Automounted USB/external media drives
+      - ${DATA_DIR}/medias/external_disks/dock_disk1/DDLtower/films:/new_films      # Movies library
+      - ${DATA_DIR}/medias/external_disks/dock_disk1/DDLtower/séries:/new_tvshow    # TV shows library
+      - ${JELLYFIN_WATCHLIST_DIR}/films:/new_films_watchlist                        # Local watchlist movies
+      - ${JELLYFIN_WATCHLIST_DIR}/series:/new_tvshow_watchlist                      # Local watchlist TV shows

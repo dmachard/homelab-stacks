@@ -1,0 +1,94 @@
+# =============================================================================
+# DNS-collector configuration
+# =============================================================================
+# Receives dnstap streams from dnsdist and PowerDNS Recursor over TCP port 6000,
+# normalizes DNS messages, and fans them out to:
+#   - all_queries  : Full DNS query/response log (/var/dnscollector/dnstap.log)
+#   - downsampling : Heavy-hitter filter forwarding rare queries to rare_queries.log
+#   - edge-topn    : Periodic Top-N summary printed to stdout every 5 minutes
+#   - prom         : Prometheus metrics exporter on HTTP port 8081
+# =============================================================================
+
+# Global tracing and internal telemetry settings
+global:
+  trace:
+    verbose: true
+  telemetry:
+    enabled: true
+
+pipelines:
+  # ---------------------------------------------------------------------------
+  # Input pipeline: dnstap TCP listener on port 6000
+  # Normalizes qnames and routes events to all downstream pipelines.
+  # ---------------------------------------------------------------------------
+  - name: tap
+    dnstap:
+      listen-ip: 0.0.0.0
+      listen-port: 6000
+    transforms:
+      normalize:
+        qname-lowercase: true
+        qname-replace-nonprintable: true
+    routing-policy:
+      forward: [ all_queries, downsampling, edge-topn, prom ]
+      #forward: [ console ]
+      dropped: [ ]
+
+  # ---------------------------------------------------------------------------
+  # Top-N statistics: logs the top 20 qnames, clients, and rcodes every 300s
+  # ---------------------------------------------------------------------------
+  - name: edge-topn
+    topn:
+      enable: true
+      interval: 300
+      top-n: 20
+      mode: "text"
+      output: "stdout"
+      track-qnames: true
+      track-clients: true
+      track-rcodes: true
+
+  # ---------------------------------------------------------------------------
+  # Frequency filter: drops high-frequency ("heavy hitter") qnames seen > 5
+  # times within a 300s sliding window, forwarding only rare queries.
+  # ---------------------------------------------------------------------------
+  - name: downsampling
+    dnsmessage: {}
+    transforms:
+      frequency-filtering:
+        target: "qname"                 # "qname", "domain", or "client-ip"
+        threshold-heavy: 5           # Hits before considered heavy hitter
+        action-on-heavy: "drop"       # "drop", "sample", or "tag"
+        sample-rate: 100                # Keep 1 in 100 when action is sample
+        ttl: 300                        # Sliding window decay in seconds
+        max-capacity: 500000            # Bounded filter capacity
+    routing-policy:
+      forward: [ "rare_queries" ]
+
+  # ---------------------------------------------------------------------------
+  # Output: raw text log of all DNS queries and responses
+  # ---------------------------------------------------------------------------
+  - name: all_queries
+    logfile:
+      file-path:  /var/dnscollector/dnstap.log
+      mode: text
+  
+  # ---------------------------------------------------------------------------
+  # Output: text log containing only infrequent / rare queries
+  # ---------------------------------------------------------------------------
+  - name: rare_queries
+    logfile:
+      file-path:  /var/dnscollector/rare_queries.log
+      mode: text
+
+  # ---------------------------------------------------------------------------
+  # Output: Prometheus metrics endpoint (http://0.0.0.0:8081/metrics)
+  # ---------------------------------------------------------------------------
+  - name: prom
+    prometheus:
+      listen-ip: 0.0.0.0
+      listen-port: 8081
+      basic-auth-enable: false
+      tls-support: false
+      prometheus-prefix: "dnscollector"
+      top-n: 10

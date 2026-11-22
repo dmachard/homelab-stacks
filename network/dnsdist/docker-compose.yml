@@ -1,0 +1,69 @@
+# =============================================================================
+# dnsdist & Blocklist Updater — Front-end DNS router/filter (Do53, CDB, split-horizon)
+# =============================================================================
+# Included by network/docker-compose.yml.
+#
+# Required environment variables (defined in network/.env):
+#   - ALPINE_VERSION, DNSDIST_BRANCH, DNSDIST_VERSION, ZONE, DATA_DIR
+#   - DNSDIST_LAN_IPV4, DNSDIST_LAN_SUBNET, DNSDIST_VPN_IPV4, DNSDIST_VPN_SUBNET
+#   - DNSDIST_IPV6, DNSDIST_WEB_PASSWORD, DNSDIST_WEB_API_KEY
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Blocklist updater: downloads blocklist.cdb on startup and daily at 01:00
+  # into ${DATA_DIR}/dns/ for dnsdist CDB filtering
+  # ---------------------------------------------------------------------------
+  blocklist_updater:
+    image: alpine:${ALPINE_VERSION}
+    container_name: blocklist_updater
+    restart: always
+    volumes:
+      - ${DATA_DIR}/dns/:/config/ # Shared directory storing downloaded blocklist.cdb
+    command: >
+      sh -c "
+        apk add --no-cache curl &&
+        echo '0 1 * * * curl -fsSL -o /config/blocklist.cdb https://raw.githubusercontent.com/dmachard/blocklist-domains/data/blocklist.cdb' > /etc/crontabs/root &&
+        curl -fsSL -o /config/blocklist.cdb https://raw.githubusercontent.com/dmachard/blocklist-domains/data/blocklist.cdb &&
+        crond -f
+      "
+
+  # ---------------------------------------------------------------------------
+  # Front-end DNS router/filter (Do53 on LAN, VPN, and IPv6)
+  # Renders ./dnsdist.yml.j2 to /tmp/dnsdist.yml via Jinja2 at startup before
+  # launching dnsdist under tini.
+  # ---------------------------------------------------------------------------
+  dnsdist:
+    image: powerdns/dnsdist-${DNSDIST_BRANCH}:${DNSDIST_VERSION}
+    container_name: dnsdist
+    restart: unless-stopped
+    user: root:root
+    network_mode: host
+    depends_on:
+      - blocklist_updater
+    environment:
+      ZONE: ${ZONE}
+      DNSDIST_LAN_IPV4: ${DNSDIST_LAN_IPV4}
+      DNSDIST_LAN_SUBNET: ${DNSDIST_LAN_SUBNET}
+      DNSDIST_VPN_IPV4: ${DNSDIST_VPN_IPV4}
+      DNSDIST_VPN_SUBNET: ${DNSDIST_VPN_SUBNET}
+      DNSDIST_IPV6: ${DNSDIST_IPV6}
+      DNSDIST_WEB_PASSWORD: ${DNSDIST_WEB_PASSWORD}
+      DNSDIST_WEB_API_KEY: ${DNSDIST_WEB_API_KEY}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./dnsdist.yml.j2:/etc/dnsdist/dnsdist.yml.j2:ro               # Jinja2 dnsdist configuration template
+      - ${DATA_DIR}/dns/blocklist.cdb:/etc/dnsdist/blocklist.cdb      # CDB domain blocklist
+    entrypoint:
+      - /usr/bin/tini
+      - --
+      - python3
+      - -c
+      - |
+        import os, sys, jinja2
+        with open('/etc/dnsdist/dnsdist.yml.j2') as f:
+            rendered = jinja2.Template(f.read(), undefined=jinja2.StrictUndefined).render(os.environ)
+        with open('/tmp/dnsdist.yml', 'w') as f:
+            f.write(rendered)
+        os.execv('/usr/local/bin/dnsdist', ['dnsdist', '--supervised', '--disable-syslog'] + sys.argv[1:])
+    command: ["-C", "/tmp/dnsdist.yml"]

@@ -1,0 +1,29 @@
+# =============================================================================
+# Observe Stack — Homelab observability (metrics, logs, dashboards & exporters)
+# =============================================================================
+# Start all observability services:
+#   docker compose up -d
+#
+# Start or restart a single service:
+#   docker compose up -d prometheus
+#
+# Prerequisites:
+#   - External Docker network: docker network create traefik_proxy
+#   - Root observe/.env configured
+# =============================================================================
+
+include:
+  - path: ./grafana/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./linkytic/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./loki/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./prometheus/docker-compose.yml
+    env_file: ./.env
+
+  - path: ./tempus/docker-compose.yml
+    env_file: ./.env

@@ -1,0 +1,48 @@
+# =============================================================================
+# WireGuard — VPN server for remote access to homelab subnets & internal DNS
+# =============================================================================
+# Included by network/docker-compose.yml.
+#
+# Required environment variables (defined in network/.env):
+#   - WIREGUARD_VERSION, WIREGUARD_PUID, WIREGUARD_PGID, WIREGUARD_TZ
+#   - WIREGUARD_SERVERURL, WIREGUARD_SERVERPORT, WIREGUARD_PEERS
+#   - WIREGUARD_PEERDNS, WIREGUARD_INTERNAL_SUBNET, WIREGUARD_ALLOWEDIPS
+#   - WIREGUARD_PERSISTENTKEEPALIVE_PEERS, WIREGUARD_LOG_CONFS, DATA_DIR
+# =============================================================================
+
+networks:
+  # Dedicated bridge network for the WireGuard VPN container
+  vpn:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.0.0/16
+
+services:
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:${WIREGUARD_VERSION}
+    container_name: wireguard
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    environment:
+      PUID: ${WIREGUARD_PUID}
+      PGID: ${WIREGUARD_PGID}
+      TZ: ${WIREGUARD_TZ}
+      SERVERURL: ${WIREGUARD_SERVERURL}
+      SERVERPORT: ${WIREGUARD_SERVERPORT}
+      PEERS: ${WIREGUARD_PEERS}
+      PEERDNS: ${WIREGUARD_PEERDNS}
+      INTERNAL_SUBNET: ${WIREGUARD_INTERNAL_SUBNET}
+      ALLOWEDIPS: ${WIREGUARD_ALLOWEDIPS}
+      PERSISTENTKEEPALIVE_PEERS: ${WIREGUARD_PERSISTENTKEEPALIVE_PEERS}
+      LOG_CONFS: ${WIREGUARD_LOG_CONFS}
+    volumes:
+      - ${DATA_DIR}/vpn/wireguard:/config # Persistent WireGuard keys, wg0.conf & peer configs
+      - /lib/modules:/lib/modules
+    ports:
+      - 51820:51820/udp # VPN server UDP port
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    networks:
+      - vpn

@@ -1,0 +1,44 @@
+# =============================================================================
+# Prometheus — Time-series metrics collection and storage
+# =============================================================================
+# Included by observe/docker-compose.yml.
+#
+# Hot-reload config without restarting:
+#   curl -X POST http://localhost:9091/-/reload
+#
+# Required environment variables (defined in observe/.env):
+#   - PROMETHEUS_VERSION, PROMETHEUS_HOST, PROMETHEUS_RETENTION_TIME
+#   - PUID, PGID, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+
+services:
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION}
+    user: "${PUID}:${PGID}"
+    restart: unless-stopped
+    ports:
+      - "9091:9090/tcp" # Web UI & HTTP API (exposed on host port 9091)
+    volumes:
+      - ${DATA_DIR}/prometheus-data:/prometheus                        # Persistent TSDB data
+      - ${DATA_DIR}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml # Scrape jobs configuration
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME}'
+      - '--web.enable-lifecycle'              # Enable hot config reload via POST /-/reload
+      - '--web.enable-remote-write-receiver'  # Accept pushed metrics via remote write API
+      - '--enable-feature=exemplar-storage'   # Support exemplars (linking metrics to traces)
+      - '--enable-feature=native-histograms'  # Enable Prometheus native histograms
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.prometheus.loadbalancer.server.port=9090
+      - traefik.http.routers.prometheus.entrypoints=websecure
+      - traefik.http.routers.prometheus.rule=Host(`${PROMETHEUS_HOST}`)
+      - traefik.http.routers.prometheus.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy

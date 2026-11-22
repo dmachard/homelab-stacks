@@ -1,0 +1,61 @@
+# =============================================================================
+# FamilyTimeline — Self-hosted family timeline web application
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - FAMILYTIMELINE_VERSION, FAMILYTIMELINE_NGINX_VERSION
+#   - FAMILYTIMELINE_HOST, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Isolated internal network connecting server, client, and nginx gateway
+  familytimeline:
+
+services:
+  # ---------------------------------------------------------------------------
+  # API backend server (SQLite + uploaded media)
+  # ---------------------------------------------------------------------------
+  familytimeline-server:
+    image: dmachard/familytimeline-server:${FAMILYTIMELINE_VERSION}
+    restart: always
+    volumes:
+      - ${DATA_DIR}/files/FamilyTimeline/database.sqlite3:/app/src/utils/database.sqlite3 # SQLite database
+      - ${DATA_DIR}/files/FamilyTimeline/data/:/app/src/data/                             # Media files
+    networks:
+      - familytimeline
+
+  # ---------------------------------------------------------------------------
+  # Frontend SPA static assets
+  # ---------------------------------------------------------------------------
+  familytimeline-client:
+    image: dmachard/familytimeline-client:${FAMILYTIMELINE_VERSION}
+    restart: always
+    volumes:
+      - ${DATA_DIR}/files/FamilyTimeline/config.js:/usr/share/nginx/html/config.js # Runtime frontend config
+    networks:
+      - familytimeline
+
+  # ---------------------------------------------------------------------------
+  # Internal Nginx reverse proxy routing frontend & API (exposed via Traefik)
+  # ---------------------------------------------------------------------------
+  familytimeline-nginx:
+    image: nginx:${FAMILYTIMELINE_NGINX_VERSION}
+    restart: always
+    depends_on:
+      - familytimeline-server
+      - familytimeline-client
+    volumes:
+      - ${DATA_DIR}/files/FamilyTimeline/nginx.conf:/etc/nginx/nginx.conf # Nginx gateway configuration
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.familytimeline.loadbalancer.server.port=80
+      - traefik.http.routers.familytimeline.entrypoints=websecure
+      - traefik.http.routers.familytimeline.rule=Host(`${FAMILYTIMELINE_HOST}`)
+      - traefik.http.routers.familytimeline.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+      - familytimeline

@@ -1,0 +1,102 @@
+# =============================================================================
+# Thingport — Self-hosted 3D model library manager (with FlareSolverr)
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - THINGPORT_VERSION, THINGPORT_POSTGRES_VERSION, THINGPORT_FLARESOLVERR_VERSION
+#   - THINGPORT_HOST, THINGPORT_AUTH_SECRET
+#   - THINGPORT_DB_USER, THINGPORT_DB_PASSWORD, THINGPORT_DB_NAME
+#   - PUID, PGID, TZ, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Isolated internal network for Thingport components
+  thingport:
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL database
+  # ---------------------------------------------------------------------------
+  thingport-db:
+    image: postgres:${THINGPORT_POSTGRES_VERSION}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${THINGPORT_DB_USER}
+      POSTGRES_PASSWORD: ${THINGPORT_DB_PASSWORD}
+      POSTGRES_DB: ${THINGPORT_DB_NAME}
+    volumes:
+      - ${DATA_DIR}/thingport/db:/var/lib/postgresql/data # Persistent PostgreSQL data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${THINGPORT_DB_USER} -d ${THINGPORT_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      thingport:
+        aliases:
+          - db # Keep internal hostname "db"
+
+  # ---------------------------------------------------------------------------
+  # FlareSolverr — Proxy server for bypassing Cloudflare challenges on imports
+  # ---------------------------------------------------------------------------
+  thingport-flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:${THINGPORT_FLARESOLVERR_VERSION}
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: info
+      TZ: ${TZ}
+    networks:
+      thingport:
+        aliases:
+          - flaresolverr # Keep internal hostname "flaresolverr"
+
+  # ---------------------------------------------------------------------------
+  # Thingport API backend
+  # ---------------------------------------------------------------------------
+  thingport-backend:
+    image: ghcr.io/tautvydasderzinskas/thingport-backend:${THINGPORT_VERSION}
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      AUTH_SECRET: ${THINGPORT_AUTH_SECRET}
+      AUTH_TOKEN_TTL: 43200
+      PUBLIC_URL: https://${THINGPORT_HOST}
+      CORS_ORIGINS: https://${THINGPORT_HOST}
+      FILE_STORAGE: /app/storage
+      DATABASE_URL: postgresql://${THINGPORT_DB_USER}:${THINGPORT_DB_PASSWORD}@db:5432/${THINGPORT_DB_NAME}?schema=public
+      FLARESOLVERR_URL: http://flaresolverr:8191/v1
+      FLARESOLVERR_REQUIRE_HTTPS: "false"
+    depends_on:
+      thingport-db:
+        condition: service_healthy
+      thingport-flaresolverr:
+        condition: service_started
+    volumes:
+      - ${DATA_DIR}/thingport/storage:/app/storage # Persistent 3D model files & thumbnails
+    networks:
+      thingport:
+        aliases:
+          - backend # Keep internal hostname "backend" for frontend nginx proxy
+
+  # ---------------------------------------------------------------------------
+  # Thingport web frontend (Nginx serving SPA and proxying /api/* to backend)
+  # ---------------------------------------------------------------------------
+  thingport-frontend:
+    image: ghcr.io/tautvydasderzinskas/thingport-frontend:${THINGPORT_VERSION}
+    restart: unless-stopped
+    depends_on:
+      - thingport-backend
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.thingport.loadbalancer.server.port=80
+      - traefik.http.routers.thingport.entrypoints=websecure
+      - traefik.http.routers.thingport.rule=Host(`${THINGPORT_HOST}`)
+      - traefik.http.routers.thingport.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+      - thingport

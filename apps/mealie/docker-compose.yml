@@ -1,0 +1,37 @@
+# =============================================================================
+# Mealie — Self-hosted recipe manager and meal planner
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - MEALIE_VERSION, MEALIE_HOST, MEALIE_SECRET_KEY, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Isolated internal network for Mealie
+  recettes:
+
+services:
+  mealie:
+    image: hkotel/mealie:${MEALIE_VERSION}
+    container_name: mealie
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: ${MEALIE_SECRET_KEY}
+      DB_ENGINE: sqlite
+    volumes:
+      - ${DATA_DIR}/mealie:/app/data # Persistent SQLite DB, recipes & images
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.recettes.loadbalancer.server.port=9000
+      - traefik.http.routers.recettes.entrypoints=websecure
+      - traefik.http.routers.recettes.rule=Host(`${MEALIE_HOST}`)
+      - traefik.http.routers.recettes.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+      - recettes
+    expose:
+      - 9000

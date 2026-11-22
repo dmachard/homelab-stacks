@@ -1,0 +1,26 @@
+# =============================================================================
+# Linky TIC Exporter — Electricity consumption metrics via Linky TIC serial
+# =============================================================================
+# Included by observe/docker-compose.yml.
+#
+# Prerequisites:
+#   - USB Linky TIC serial adapter connected on ${LINKY_TIC_DEVICE}
+#
+# Required environment variables (defined in observe/.env):
+#   - LINKYTIC_VERSION, LINKY_DEBUG, LINKY_TIC_DEVICE, LINKY_TIC_MODE, DATA_DIR
+# =============================================================================
+
+services:
+  linkytic_exporter:
+    image: dmachard/linkytic-exporter:${LINKYTIC_VERSION}
+    restart: unless-stopped
+    ports:
+      - "9100:9100/tcp" # /metrics endpoint scraped by Prometheus
+    devices:
+      - "${LINKY_TIC_DEVICE}:${LINKY_TIC_DEVICE}" # USB-to-serial adapter wired to the Linky meter
+    environment:
+      LINKY_DEBUG: ${LINKY_DEBUG}
+      LINKY_TIC_DEVICE: ${LINKY_TIC_DEVICE}
+      LINKY_TIC_MODE: ${LINKY_TIC_MODE} # STANDARD or HISTORIQUE
+    volumes:
+      - ${DATA_DIR}/linky-data:/tmp # Persistent state (linky_state.json)

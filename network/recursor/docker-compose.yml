@@ -1,0 +1,17 @@
+# =============================================================================
+# PowerDNS Recursor — Upstream recursive DNS resolver (port 5301)
+# =============================================================================
+# Included by network/docker-compose.yml.
+#
+# Required environment variables (defined in network/.env):
+#   - RECURSOR_BRANCH, RECURSOR_VERSION
+# =============================================================================
+
+services:
+  recursor:
+    image: powerdns/pdns-recursor-${RECURSOR_BRANCH}:${RECURSOR_VERSION}
+    container_name: recursor
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./recursor.yml:/etc/powerdns/recursor.yml # PowerDNS Recursor configuration

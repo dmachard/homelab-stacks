@@ -1,0 +1,122 @@
+# =============================================================================
+# Immich — Self-hosted photo and video management solution
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Host prerequisite (for Valkey/Redis stability):
+#   sudo sysctl -w vm.overcommit_memory=1
+#
+# Required environment variables (defined in apps/.env):
+#   - IMMICH_VERSION, IMMICH_VALKEY_VERSION, IMMICH_POSTGRES_VERSION, IMMICH_HOST
+#   - IMMICH_DB_USERNAME, IMMICH_DB_PASSWORD, IMMICH_DB_NAME
+#   - PUID, PGID, TZ, DATA_DIR
+#
+# Upstream reference:
+#   https://github.com/immich-app/immich/releases/latest/download/docker-compose.yml
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Isolated internal network for Immich components
+  immich:
+
+services:
+  # ---------------------------------------------------------------------------
+  # Immich main API & web server
+  # ---------------------------------------------------------------------------
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION}
+    container_name: immich_server
+    user: "${PUID}:${PGID}"
+    restart: always
+    environment:
+      TZ: ${TZ}
+      DB_HOSTNAME: database
+      DB_USERNAME: ${IMMICH_DB_USERNAME}
+      DB_PASSWORD: ${IMMICH_DB_PASSWORD}
+      DB_DATABASE_NAME: ${IMMICH_DB_NAME}
+      REDIS_HOSTNAME: redis
+    volumes:
+      - ${DATA_DIR}/photos/immich-library:/data # Uploaded photos & videos library
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - 2283:2283
+    expose:
+      - 2283
+    depends_on:
+      - immich-redis
+      - immich-database
+    healthcheck:
+      disable: false
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.immich.loadbalancer.server.port=2283
+      - traefik.http.routers.immich.entrypoints=websecure
+      - traefik.http.routers.immich.rule=Host(`${IMMICH_HOST}`)
+      - traefik.http.routers.immich.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+      - immich
+
+  # ---------------------------------------------------------------------------
+  # Immich machine learning worker (smart search, facial recognition)
+  # ---------------------------------------------------------------------------
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION}
+    container_name: immich_machine_learning
+    user: "${PUID}:${PGID}"
+    restart: always
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/photos/immich-model-cache:/cache # Downloaded ML models cache
+    healthcheck:
+      disable: false
+    networks:
+      - immich
+
+  # ---------------------------------------------------------------------------
+  # Valkey (Redis-compatible) job queue & cache
+  # ---------------------------------------------------------------------------
+  immich-redis:
+    image: docker.io/valkey/valkey:${IMMICH_VALKEY_VERSION}
+    container_name: immich_redis
+    user: "${PUID}:${PGID}"
+    restart: always
+    expose:
+      - 6379
+    volumes:
+      - ${DATA_DIR}/photos/immich-cache:/data # Persistent Valkey data
+    healthcheck:
+      test: redis-cli ping | grep -q PONG || exit 1
+    networks:
+      immich:
+        aliases:
+          - redis # Keep upstream hostname "redis"
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL with VectorChord extension
+  # ---------------------------------------------------------------------------
+  immich-database:
+    image: ghcr.io/immich-app/postgres:${IMMICH_POSTGRES_VERSION}
+    container_name: immich_postgres
+    user: "${PUID}:${PGID}"
+    restart: always
+    shm_size: 128mb
+    expose:
+      - 5432
+    environment:
+      POSTGRES_PASSWORD: ${IMMICH_DB_PASSWORD}
+      POSTGRES_USER: ${IMMICH_DB_USERNAME}
+      POSTGRES_DB: ${IMMICH_DB_NAME}
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    volumes:
+      - ${DATA_DIR}/photos/immich-db:/var/lib/postgresql/data # Persistent PostgreSQL data
+    healthcheck:
+      disable: false
+    networks:
+      immich:
+        aliases:
+          - database # Keep upstream hostname "database"

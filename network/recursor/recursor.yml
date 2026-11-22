@@ -1,0 +1,27 @@
+# =============================================================================
+# PowerDNS Recursor configuration
+# =============================================================================
+# Upstream recursive resolver behind dnsdist.
+# Listens on port 5301 (IPv4 & IPv6) and streams DNS queries/responses via
+# dnstap to dnscollector on 127.0.0.1:6000.
+# =============================================================================
+
+# Drop-in configuration directory (used by the container startup script)
+recursor:
+  include_dir: /etc/powerdns/recursor.d
+
+# Listening sockets and client ACLs (fronted locally by dnsdist)
+incoming:
+  listen:
+  - 0.0.0.0:5301
+  - '[::]:5301'
+  allow_from:
+  - 0.0.0.0/0
+  - ::/0
+
+# Remote dnstap logging to dnscollector (TCP 6000)
+logging:
+  dnstap_framestream_servers:
+    - servers: [127.0.0.1:6000]
+      logQueries: true
+      logResponses: true

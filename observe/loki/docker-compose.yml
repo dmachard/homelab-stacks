@@ -1,0 +1,21 @@
+# =============================================================================
+# Loki — Log aggregation and storage
+# =============================================================================
+# Included by observe/docker-compose.yml.
+#
+# Required environment variables (defined in observe/.env):
+#   - LOKI_VERSION, PUID, PGID, DATA_DIR
+# =============================================================================
+
+services:
+  loki:
+    image: grafana/loki:${LOKI_VERSION}
+    user: "${PUID}:${PGID}"
+    restart: unless-stopped
+    ports:
+      - "3100:3100" # Loki HTTP API (log ingestion & LogQL queries)
+    command:
+      - '--config.file=/etc/loki/config.yaml'
+    volumes:
+      - ${DATA_DIR}/loki-data:/tmp/loki   # Persistent log chunks & index
+      - ./config.yaml:/etc/loki/config.yaml # Loki configuration

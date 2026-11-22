@@ -1,0 +1,19 @@
+# =============================================================================
+# DNS-collector — dnstap collector, query logger & Prometheus metrics exporter
+# =============================================================================
+# Included by network/docker-compose.yml.
+#
+# Required environment variables (defined in network/.env):
+#   - DNSCOLLECTOR_VERSION, DATA_DIR
+# =============================================================================
+
+services:
+  dnscollector:
+    image: dmachard/dnscollector:${DNSCOLLECTOR_VERSION}
+    container_name: dnscollector
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config.yml:/etc/dnscollector/config.yml             # DNS-collector pipelines configuration
+      - ${DATA_DIR}/observability/dnstap:/var/dnscollector/   # Persistent dnstap query logs

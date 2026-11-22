@@ -1,0 +1,37 @@
+# =============================================================================
+# Vaultwarden — Lightweight Bitwarden-compatible password manager
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - VAULTWARDEN_VERSION, VAULTWARDEN_HOST, VAULTWARDEN_ADMIN_TOKEN, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Isolated internal network for Vaultwarden
+  vault_net:
+
+services:
+  vaultwarden:
+    image: vaultwarden/server:${VAULTWARDEN_VERSION}
+    container_name: vaultwarden
+    restart: unless-stopped
+    environment:
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN}
+      ROCKET_PROFILE: release
+      ROCKET_ADDRESS: 0.0.0.0
+      ROCKET_PORT: 80
+    volumes:
+      - ${DATA_DIR}/vault:/data # Persistent SQLite DB, attachments & RSA keys
+    networks:
+      - traefik_proxy
+      - vault_net
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.vaultwarden.entrypoints=websecure
+      - traefik.http.routers.vaultwarden.rule=Host(`${VAULTWARDEN_HOST}`)
+      - traefik.http.routers.vaultwarden.tls.certresolver=letsencrypt
+      - traefik.http.services.vaultwarden.loadbalancer.server.port=80

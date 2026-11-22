@@ -1,0 +1,81 @@
+# =============================================================================
+# SCI-Compta — Real-estate accounting web application (FastAPI + PostgreSQL)
+# =============================================================================
+# Included by apps/docker-compose.yml.
+#
+# Required environment variables (defined in apps/.env):
+#   - SCICOMPTA_VERSION, SCICOMPTA_POSTGRES_VERSION, SCICOMPTA_HOST
+#   - SCICOMPTA_DB_USER, SCICOMPTA_DB_PASSWORD, SCICOMPTA_DB_NAME
+#   - SCICOMPTA_SECRET_KEY, DATA_DIR
+# =============================================================================
+
+networks:
+  # Shared network with the Traefik reverse proxy
+  traefik_proxy:
+    external: true
+  # Isolated internal network for SCI-Compta components
+  scicompta:
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL database
+  # ---------------------------------------------------------------------------
+  scicompta-db:
+    image: postgres:${SCICOMPTA_POSTGRES_VERSION}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${SCICOMPTA_DB_USER}
+      POSTGRES_PASSWORD: ${SCICOMPTA_DB_PASSWORD}
+      POSTGRES_DB: ${SCICOMPTA_DB_NAME}
+    volumes:
+      - ${DATA_DIR}/scicompta/db:/var/lib/postgresql # Persistent PostgreSQL data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SCICOMPTA_DB_USER} -d ${SCICOMPTA_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      scicompta:
+        aliases:
+          - db # Keep internal hostname "db" compatible with app defaults
+
+  # ---------------------------------------------------------------------------
+  # FastAPI backend (runs Alembic migrations on startup before uvicorn)
+  # ---------------------------------------------------------------------------
+  scicompta-backend:
+    image: dmachard/sci-compta-backend:${SCICOMPTA_VERSION}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${SCICOMPTA_DB_USER}:${SCICOMPTA_DB_PASSWORD}@scicompta-db:5432/${SCICOMPTA_DB_NAME}
+      SECRET_KEY: ${SCICOMPTA_SECRET_KEY}
+      UPLOAD_DIR: /app/uploads
+      PYTHONPATH: /app
+    volumes:
+      - ${DATA_DIR}/scicompta/uploads:/app/uploads # Persistent uploaded documents
+    networks:
+      scicompta:
+        aliases:
+          - backend # Keep internal hostname "backend" for frontend reverse proxy
+    depends_on:
+      scicompta-db:
+        condition: service_healthy
+    command: >
+      bash -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  # ---------------------------------------------------------------------------
+  # Web frontend (exposed through Traefik)
+  # ---------------------------------------------------------------------------
+  scicompta-frontend:
+    image: dmachard/sci-compta-frontend:${SCICOMPTA_VERSION}
+    restart: unless-stopped
+    depends_on:
+      - scicompta-backend
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.scicompta.loadbalancer.server.port=80
+      - traefik.http.routers.scicompta.entrypoints=websecure
+      - traefik.http.routers.scicompta.rule=Host(`${SCICOMPTA_HOST}`)
+      - traefik.http.routers.scicompta.tls.certresolver=letsencrypt
+    networks:
+      - traefik_proxy
+      - scicompta
